@@ -54,6 +54,7 @@ namespace AwqatSalaat.WinUI
 
         public IntPtr Handle => hwnd != IntPtr.Zero ? hwnd : throw new InvalidOperationException("The widget is not initialized.");
         public DisplayEntity Display => DisplayHelper.AvailableDisplays.SingleOrDefault(d => d.Display.DevicePath == displayPath);
+        public bool IsAlive => initialized && !destroyed && !disposedValue && User32.IsWindow(hwnd);
 
         public event EventHandler Destroying;
 
@@ -129,7 +130,11 @@ namespace AwqatSalaat.WinUI
             {
                 Log.Debug("Triggering an animation (hide) due to taskbar alignment change");
                 // This only to make the widget show an animation :)
-                widgetSummary.DispatcherQueue.TryEnqueue(() => (host.Content as GridEx).Children.Clear());
+                widgetSummary.DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (IsAlive)
+                        (host.Content as GridEx).Children.Clear();
+                });
             }
             else if (savedOffsetX > -1 && e.Reason != TaskbarChangeReason.TabletMode)
             {
@@ -196,8 +201,8 @@ namespace AwqatSalaat.WinUI
         {
             Log.Information("Widget host is being destroyed");
             appWindow.Destroying -= AppWindow_Destroying;
-            Destroying?.Invoke(this, EventArgs.Empty);
             destroyed = true;
+            Destroying?.Invoke(this, EventArgs.Empty);
         }
 
         public void Show()
@@ -209,7 +214,10 @@ namespace AwqatSalaat.WinUI
         public void Destroy()
         {
             Log.Debug("Destroying widget host's appwindow");
-            appWindow.Destroy();
+            if (!destroyed && User32.IsWindow(hwnd))
+            {
+                appWindow?.Destroy();
+            }
         }
 
         public void UpdatePosition(bool force = false, TaskbarChangeReason reason = TaskbarChangeReason.None)
@@ -372,6 +380,10 @@ namespace AwqatSalaat.WinUI
 
             widgetSummary.DispatcherQueue.TryEnqueue(() =>
             {
+                // Recovery may have disposed this host while the update was queued.
+                if (!IsAlive || Display is null)
+                    return;
+
                 InvalidateElementsAlignment(Properties.Settings.Default.AutoAlignment);
 
                 // This only to make the widget show an animation :)
@@ -684,10 +696,7 @@ namespace AwqatSalaat.WinUI
 
                     // TODO: dispose managed state (managed objects)
 
-                    if (!destroyed)
-                    {
-                        appWindow?.Destroy();
-                    }
+                    Destroy();
 
                     widgetSummary.DisplayModeChanged -= WidgetSummary_DisplayModeChanged;
                     taskbarWatcher.TaskbarChangedNotificationStarted -= TaskbarWatcher_TaskbarChangedNotificationStarted;

@@ -823,9 +823,9 @@
     <value>لم يتم السماح بالوصول إلى الموقع.</value>
   </data>
   <data name="UI.Settings.ShowTrayIcon" xml:space="preserve">
-    <value>إظهار أيقونة منطقة الإعلام</value>
+    <value>إظهار أيقونة درج النظام</value>
   </data>
   <data name="UI.Settings.ShowTrayIconDescription" xml:space="preserve">
-    <value>تبقى الأيقونة ظاهرة عند إخفاء الودجت لتتمكن من إظهاره مجددًا أو إغلاق التطبيق.</value>
+    <value>تبقى الأيقونة ظاهرة عند إخفاء الأداة لتتمكن من إظهارها مجددًا أو إغلاق التطبيق.</value>
   </data>
 </root>

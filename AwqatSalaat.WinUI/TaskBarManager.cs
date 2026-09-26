@@ -31,7 +31,10 @@ namespace AwqatSalaat.WinUI
 
         private static string latestDisplay;
         private static bool isPurposelyHidden;
+        private static bool isShowPending;
         private static bool isQuitting;
+
+        private static bool IsWidgetAvailable => taskBarWidget?.IsAlive == true && taskBarWidget.Display is not null;
 
         public static IntPtr CurrentWidgetHandle => taskBarWidget?.Handle ?? throw new InvalidOperationException("The taskbar widget is missing.");
         public static ICommand ShowWidget { get; }
@@ -75,6 +78,7 @@ namespace AwqatSalaat.WinUI
             DisplayHelper.DisplayChanged += DisplayHelper_DisplayChanged;
             TaskbarSettingsWatcher.SettingChanged += TaskbarSettingsWatcher_SettingChanged;
             Notification.NotificationManager.ShowWidgetRequested += NotificationManager_ShowWidgetRequested;
+            Properties.Settings.Realtime.PropertyChanged += Settings_PropertyChanged;
 
             AppIcon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath);
         }
@@ -94,54 +98,63 @@ namespace AwqatSalaat.WinUI
 
         private static void DisplayHelper_DisplayChanged(object sender, DisplayChangedEventArgs e)
         {
+            dispatcher?.TryEnqueue(() => HandleDisplayChanged(e));
+        }
+
+        private static void HandleDisplayChanged(DisplayChangedEventArgs e)
+        {
+            if (isQuitting)
+                return;
+
             var affectedDisplay = e.DisplayEntity?.Display?.DevicePath;
             var displaySetting = Properties.Settings.Default.Display;
 
-            if (e.Reason == DisplayChangedReason.Connected && taskBarWidget is null && !isPurposelyHidden)
+            if (e.Reason == DisplayChangedReason.Connected && !IsWidgetAvailable && (!isPurposelyHidden || isShowPending))
             {
                 Log.Information("Showing widget after a display becomes available");
-                dispatcher.TryEnqueue(ShowWidgetExecute);
+                ShowWidgetExecute();
             }
             else if (e.Reason == DisplayChangedReason.PrimaryDisplay && displaySetting == "PRIMARY")
             {
                 Log.Information("Moving the widget to the new primary display");
-                dispatcher.TryEnqueue(HideThenShow);
+                HideThenShow();
             }
             else if (e.Reason is DisplayChangedReason.PrimaryDuplicated or DisplayChangedReason.PrimaryDeduplicated
                 && displaySetting != "PRIMARY"
                 && latestDisplay == affectedDisplay)
             {
                 Log.Information("Re-showing the widget because the primary display was (de)duplicated to/from the current display");
-                dispatcher.TryEnqueue(HideThenShow);
+                HideThenShow();
             }
             // If the widget is shown in the dosconnected display, then we need to move it to another one
             else if (e.Reason == DisplayChangedReason.Disconnected && affectedDisplay == latestDisplay)
             {
                 // Wait a little to ensure the widget is destroyed if it was previously visible
-                Task.Delay(100).ContinueWith(t =>
+                Task.Delay(100).ContinueWith(t => dispatcher.TryEnqueue(() =>
                 {
-                    if (!isPurposelyHidden)
+                    if (!isQuitting && (!isPurposelyHidden || isShowPending))
                     {
                         Log.Information("Showing the widget again after disconnecting the related display");
-                        dispatcher.TryEnqueue(ShowWidgetExecute);
+                        ShowWidgetExecute();
                     }
-                });
+                }));
             }
             // If the connected display is the one chosen by the user, then we move the widget there
             else if (e.Reason == DisplayChangedReason.Connected && affectedDisplay == displaySetting)
             {
                 Log.Information("Moving the widget the user's preferred display after connecting it");
-                dispatcher.TryEnqueue(HideThenShow);
+                HideThenShow();
             }
 
             UpdateDisplayTrayMenus();
+            UpdateTrayIconVisibility();
         }
 
         private static void HideThenShow()
         {
-            if (taskBarWidget is not null)
+            if (!isQuitting && (!isPurposelyHidden || isShowPending))
             {
-                HideWidgetExecute();
+                DestroyWidget();
                 ShowWidgetExecute();
             }
         }
@@ -184,7 +197,7 @@ namespace AwqatSalaat.WinUI
 
         private static void NotificationManager_ShowWidgetRequested()
         {
-            if (taskBarWidget is null)
+            if (!IsWidgetAvailable)
             {
                 Log.Information("Showing widget after clicking on toast notification");
                 dispatcher.TryEnqueue(ShowWidgetExecute);
@@ -256,7 +269,6 @@ namespace AwqatSalaat.WinUI
                 trayIcon.MessageWindow.TaskbarCreated += (_, _) => dispatcher.TryEnqueue(OnTaskbarCreated);
                 trayIcon.Created += TrayIcon_Created;
                 trayIcon.Create();
-                Properties.Settings.Realtime.PropertyChanged += Settings_PropertyChanged;
             }
 
             ShowWidgetExecute();
@@ -353,14 +365,15 @@ namespace AwqatSalaat.WinUI
             if (isQuitting)
                 return;
 
-            // A request to show remains pending even if no display is available yet.
-            isPurposelyHidden = false;
             Log.Information("Showing widget");
 
             try
             {
-                if (taskBarWidget is null)
+                if (!IsWidgetAvailable)
                 {
+                    // Keep a request separate from the actual hidden/visible state.
+                    isShowPending = true;
+                    DestroyWidget();
                     Log.Information("Creating widget");
 
                     var display = DisplayHelper.FindProperDisplay(Properties.Settings.Default.Display);
@@ -379,9 +392,9 @@ namespace AwqatSalaat.WinUI
                     widget.Show();
 
                     taskBarWidget = widget;
+                    isPurposelyHidden = false;
+                    isShowPending = false;
                     latestDisplay = display.Display.DevicePath;
-
-                    UpdateTrayMenuItemsStates(true);
                 }
             }
             finally
@@ -393,43 +406,59 @@ namespace AwqatSalaat.WinUI
         private static void HideWidgetExecute(bool showNotification = false)
         {
             Log.Information("Hiding widget");
+            isShowPending = false;
+            bool hadWidget = taskBarWidget is not null;
+            DestroyWidget();
+            isPurposelyHidden = true;
 
-            if (taskBarWidget is not null)
+            if (hadWidget && showNotification)
             {
-                var widget = taskBarWidget;
-                using (widget)
-                {
-                    Log.Information("Destroying widget");
-                    widget.Destroy();
-                    isPurposelyHidden = true;
-                }
+                Notification.NotificationManager.SendWidgetStillRunningToast();
+            }
+        }
 
-                // Explorer can destroy the native host without raising Destroying.
-                // Release the stale reference so the widget can be created again.
-                if (ReferenceEquals(taskBarWidget, widget))
-                {
-                    Widget_Destroying(widget, EventArgs.Empty);
-                }
+        private static void DestroyWidget()
+        {
+            if (taskBarWidget is null)
+                return;
 
-                if (showNotification)
+            // Explicit cleanup owns the reference, whether or not Destroying fires.
+            taskBarWidget.Destroying -= Widget_Destroying;
+            try
+            {
+                using (taskBarWidget)
                 {
-                    Notification.NotificationManager.SendWidgetStillRunningToast();
+                    taskBarWidget.Destroy();
                 }
+            }
+            finally
+            {
+                taskBarWidget = null;
+                UpdateTrayIconVisibility();
             }
         }
 
         private static void Widget_Destroying(object sender, EventArgs e)
         {
-            (sender as TaskBarWidget).Destroying -= Widget_Destroying;
-            UpdateTrayMenuItemsStates(false);
+            var widget = (TaskBarWidget)sender;
+            widget.Destroying -= Widget_Destroying;
 
-            taskBarWidget = null;
             UpdateTrayIconVisibility();
             Log.Information("Widget destroyed");
+            // Keep the unavailable object until disposal so Show can release it
+            // before creating another widget, even if it runs before this callback.
+            dispatcher.TryEnqueue(() =>
+            {
+                if (ReferenceEquals(taskBarWidget, widget))
+                    DestroyWidget();
+            });
         }
 
         private static void OnTaskbarCreated()
         {
+            if (isQuitting)
+                return;
+
             try
             {
                 Log.Information("Taskbar created");
@@ -445,18 +474,14 @@ namespace AwqatSalaat.WinUI
             }
 
             HideThenShow();
-            if (taskBarWidget is null && !isPurposelyHidden)
-            {
-                ShowWidgetExecute();
-            }
             UpdateTrayIconVisibility();
         }
 
         private static void Settings_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(Properties.Settings.ShowTrayIcon))
+            if (!isQuitting && e.PropertyName == nameof(Properties.Settings.ShowTrayIcon))
             {
-                dispatcher.TryEnqueue(UpdateTrayIconVisibility);
+                dispatcher?.TryEnqueue(UpdateTrayIconVisibility);
             }
         }
 
@@ -467,7 +492,9 @@ namespace AwqatSalaat.WinUI
 
             // Keep Show and Quit reachable whenever the widget is unavailable.
             // Hiding the icon retains its message window for taskbar and session events.
-            var visibility = Properties.Settings.Realtime.ShowTrayIcon || taskBarWidget is null
+            bool widgetAvailable = IsWidgetAvailable;
+            UpdateTrayMenuItemsStates(widgetAvailable);
+            var visibility = Properties.Settings.Realtime.ShowTrayIcon || !widgetAvailable
                 ? IconVisibility.Visible
                 : IconVisibility.Hidden;
 

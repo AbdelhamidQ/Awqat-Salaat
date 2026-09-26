@@ -74,6 +74,9 @@ namespace AwqatSalaat.Interop
         public static extern bool DestroyWindow(IntPtr hwnd);
 
         [DllImport("user32.dll")]
+        public static extern bool IsWindow(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
         public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowProc lpEnumFunc, IntPtr lParam);
 
         [DllImport("user32.dll")]

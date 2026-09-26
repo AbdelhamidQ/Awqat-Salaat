@@ -22,4 +22,13 @@ Use the WinUI Release build for these checks. The existing Debug build uses a fi
 8. Verify display disconnect/reconnect recovery, including a show request while no display is available. The app must retain a recovery icon and show the widget when a display returns.
 9. Quit with each icon preference and confirm the app exits without leaving a tray icon. Check normal Windows sign-out/shutdown separately.
 
+### Recovery regression cases
+
+- Start with no display available. Confirm the recovery icon stays visible, Show is enabled, and Hide and both positioning commands are disabled.
+- Hide the widget, request Show while no display is available, then reconnect a display. Confirm Show resumes only when a display exists. An explicit Hide before reconnection must cancel that pending request.
+- Lose the widget's display or native window while its managed object is still present. Confirm the recovery icon becomes available and the next Show disposes the stale object before creating a replacement.
+- Deliver a taskbar-created or display-change callback after shutdown has started. Neither the tray icon nor widget should be recreated.
+- Recreate the widget while position or animation updates are still queued. Updates for the disposed host must be ignored without a crash.
+- Confirm the tray setting is next to the lock-screen setting in General. Check the Arabic label uses "درج النظام" and the help uses "الأداة".
+
 The icon is hidden using the existing H.NotifyIcon visibility API. Its message window remains alive for Explorer restart and session-ending events. No prayer, notification, or audio services are disabled by the setting.

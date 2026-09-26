@@ -149,9 +149,6 @@
                             <ctrl:SettingsItem Header="{mk:I18n Key=UI.Settings.ShowCountdown}" Description="{mk:I18n Key=UI.Settings.ShowCountdownDescription}">
                                 <ToggleSwitch x:Name="countdownToggle" IsOn="{x:Bind ViewModel.Realtime.ShowCountdown}" OnContent="{mk:I18n Key=UI.Controls.Toggle.On}" OffContent="{mk:I18n Key=UI.Controls.Toggle.Off}"/>
                             </ctrl:SettingsItem>
-                            <ctrl:SettingsItem Header="{mk:I18n Key=UI.Settings.ShowTrayIcon}" Description="{mk:I18n Key=UI.Settings.ShowTrayIconDescription}">
-                                <ToggleSwitch IsOn="{x:Bind ViewModel.Realtime.ShowTrayIcon}" OnContent="{mk:I18n Key=UI.Controls.Toggle.On}" OffContent="{mk:I18n Key=UI.Controls.Toggle.Off}"/>
-                            </ctrl:SettingsItem>
                             <ctrl:SettingsItem Header="{mk:I18n Key=UI.Settings.ShowSeconds}" Description="{mk:I18n Key=UI.Settings.ShowSecondsDescription}" IsEnabled="{x:Bind ViewModel.Realtime.ShowCountdown, Mode=OneWay}">
                                 <ToggleSwitch IsOn="{x:Bind ViewModel.Realtime.ShowSeconds}" OnContent="{mk:I18n Key=UI.Controls.Toggle.On}" OffContent="{mk:I18n Key=UI.Controls.Toggle.Off}"/>
                             </ctrl:SettingsItem>
@@ -213,6 +210,9 @@
                                                    IsEnabled="{x:Bind ViewModel.Realtime.CalendarType, Converter={StaticResource EnumEqualityConverter}, ConverterParameter='Hijri', Mode=OneWay}"/>
                                     </StackPanel>
                                 </StackPanel>
+                            </ctrl:SettingsItem>
+                            <ctrl:SettingsItem Header="{mk:I18n Key=UI.Settings.ShowTrayIcon}" Description="{mk:I18n Key=UI.Settings.ShowTrayIconDescription}">
+                                <ToggleSwitch IsOn="{x:Bind ViewModel.Realtime.ShowTrayIcon}" OnContent="{mk:I18n Key=UI.Controls.Toggle.On}" OffContent="{mk:I18n Key=UI.Controls.Toggle.Off}"/>
                             </ctrl:SettingsItem>
                             <ctrl:SettingsItem x:Name="lockScreenSetting" Header="{mk:I18n Key=UI.Settings.ShowContentOnLockScreen}" Description="{mk:I18n Key=UI.Settings.ShowContentOnLockScreenDescription}">
                                 <StackPanel>
